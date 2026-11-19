@@ -60,6 +60,11 @@ jobs:
             [[ -n "${!var}" ]] || { echo "::error::Required secret is not configured"; exit 1; }
           done
           [[ "$(uname -m)" == arm64 ]] || { echo "::error::Apple Silicon runner required"; exit 1; }
+          # GitHub xcode-27 image may default to 27.1; explicitly select stable 27.2.
+          test -d /Applications/Xcode_27.2.app/Contents/Developer || {
+            echo "::error::Xcode 27.2 installation not present"; exit 1;
+          }
+          sudo xcode-select --switch /Applications/Xcode_27.2.app/Contents/Developer
           xcodebuild -version
           python3 - <<'PY'
           import subprocess
