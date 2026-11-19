@@ -40,7 +40,7 @@ jobs:
           get /in/github-sftp-smoke.txt downloaded.txt
           EOF
           sftp -i "$HOME/.ssh/id_ed25519" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -b get.sftp "$EMS_USER@ems.corvus-gamut.ts.net"
-          printf 'cerberus-sftp-smoke-v1\n' > expected.txt
+          printf 'cerberus-sftp-smoke-v1\r\n' > expected.txt
           cmp expected.txt downloaded.txt
           echo "PASS: downloaded restricted SFTP input matches expected harmless fixture"
           cat > put.sftp <<EOF
