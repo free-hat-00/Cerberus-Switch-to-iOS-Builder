@@ -27,7 +27,8 @@ Copy-Item -LiteralPath $config -Destination $backup
 # Random local account password is never displayed, stored or placed on GitHub.
 $alphabet = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#%+=_-'
 $bytes = New-Object byte[] 64
-[Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+$rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
 $passwordText = -join ($bytes | ForEach-Object { $alphabet[$_ % $alphabet.Length] })
 $password = ConvertTo-SecureString $passwordText -AsPlainText -Force
 $passwordText = $null
