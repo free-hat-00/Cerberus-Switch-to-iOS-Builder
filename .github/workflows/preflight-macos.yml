@@ -9,7 +9,7 @@ permissions:
 jobs:
   toolchain:
     runs-on: xcode-27
-    timeout-minutes: 25
+    timeout-minutes: 60
     steps:
       - name: Inspect native macOS host
         shell: bash
@@ -84,3 +84,26 @@ jobs:
             fi
           done
           echo 'PASS: game-free macOS toolchain preflight completed'
+
+      - name: Exercise nxnative dependency installation (no games, no secrets)
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install xcodegen zstd glslang unar
+          python -m pip install lz4 'capstone>=5,<6' fonttools nsz zbic backports.zstd
+          command -v xcodegen
+          command -v glslangValidator
+          command -v unar
+          python - <<'PY'
+          import importlib.util
+          for name in ('lz4','capstone','fontTools','nsz','backports.zstd'):
+              try:
+                  available=importlib.util.find_spec(name) is not None
+              except ModuleNotFoundError:
+                  available=False
+              print(('AVAILABLE' if available else 'MISSING')+': '+name)
+              if not available:
+                  raise SystemExit('Missing required Python module '+name)
+          print('PASS: required Python modules import-discoverable')
+          PY
+          echo 'PASS: build dependency installation works on xcode-27 runner'
