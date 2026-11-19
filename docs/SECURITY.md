@@ -14,7 +14,7 @@
 ## Setup prerequisites (not yet completed)
 
 1. **EMS: dedicate a non-administrator account** (e.g., `nxnative-ci`) for the builder. Do not reuse the existing Windows user or administrator. Use key-based OpenSSH login only for this identity and deny shell/port forwarding if feasible while preserving SFTP. Verify Windows sshd supports the selected restriction settings before deployment.
-2. **EMS NTFS ACLs:** for the new account, grant read to `D:\Emulators\Switch\.nxnative-staging` and write to `D:\Emulators\Switch\.nxnative-outputs` *only*. Explicitly verify that it cannot traverse/read `D:\Emulators\Switch\Games - ROMs`, the original `Ryujinx` key directory, user profiles, or other volumes. Do not grant Full Control to the whole Switch directory; parent traversal permissions require care. A temporary copied key in one staging subfolder is still secret data.
+2. **EMS NTFS ACLs:** for the new account, grant read to `C:\NxNativeSFTP\in` and write to `C:\NxNativeSFTP\out` *only*. Explicitly verify that it cannot traverse/read `D:\Emulators\Switch\Games - ROMs`, the original `Ryujinx` key directory, user profiles, or other volumes. Do not grant Full Control to the whole Switch directory; parent traversal permissions require care. The SFTP-only account is jailed in `C:\NxNativeSFTP`, because existing D: game directories currently grant Everyone full control. A temporary copied key in one staging subfolder is still secret data.
 3. **EMS OpenSSH:** verify its **host key fingerprint out of band** using local administrator access; paste the public `known_hosts` line into the GitHub secret `EMS_SSH_KNOWN_HOSTS`. Never trust first-use `ssh-keyscan` from CI.
 4. **Dedicated SSH key:** generate a separate Ed25519 keypair exclusively for this workflow; put public half into the dedicated account's authorized_keys, and private half into GitHub Actions encrypted secret `EMS_SSH_PRIVATE_KEY`. Set `EMS_SSH_USER` to only the dedicated account name. Rotate and revoke if exposed. Do not use a personal SSH key.
 5. **Tailscale:** create a dedicated OAuth client limited to auth-key issuance tagged `tag:github-builder` (and make the tagged runners ephemeral). Configure tailnet grants so the builder tag can reach **EMS TCP/22 only**, not Cerberus or the rest of the tailnet. Retain existing user-to-EMS access. Never broadly allow `tag:github-builder` to `*:* `. Validate a denied connection to an unrelated tailnet endpoint.
@@ -23,7 +23,7 @@
 
 ## Build preparation
 
-On EMS, run `scripts/stage-ems.ps1 -GameFolder '<exact-folder-name>'`. It creates a random staging ID, an archive of the selected folder, a *temporary copy* of `prod.keys`, and an empty output directory. Do not run the staging command yet unless disk space and dedicated-account ACLs have been verified.
+On EMS, run `scripts/stage-ems.ps1 -GameFolder '<exact-folder-name>'`. It creates a random staging ID, an archive of the selected folder, a *temporary copy* of `prod.keys`, and an empty output directory. Do not run the staging command until the dedicated account, restricted SFTP jail and ACLs are verified.
 
 Enter only the random build ID in GitHub's manual workflow dispatch form. After completion or failure, run `scripts/cleanup-ems.ps1 -BuildId '<id>'` and confirm. This cleanup is not yet automatic; design a restricted coordinator if automatic expiry is required.
 
@@ -46,3 +46,11 @@ Firmware `D:\Emulators\Switch\Ryujinx\publish\Firmware.22.1.0` is **not** part o
 ## Operational rule
 
 Do not enable private builds, create privileged accounts, widen tailnet access or upload any real game/key materials as part of a dry run. A green non-sensitive preflight does **not** mean the private pipeline has been security-validated.
+
+## EMS observed on 2026-11-19
+
+- Windows OpenSSH 9.5 was active, with `AllowUsers cerberus` and password authentication enabled globally.
+- The connected `ems\\cerberus` Desktop Commander session was **not elevated**. No account, key or service configuration was changed by remote session.
+- `D:\Emulators\Switch` and its parent game paths had explicit `Everyone: FullControl`; ordinary NTFS permissions on this drive are insufficient to restrict a new local account.
+- Setup script `scripts/setup-ems-sftp.ps1` is installed on EMS in `C:\Users\cerberus\Downloads\setup-ems-sftp.ps1`, and was parsed without syntax errors. **User must run it elevated**. The SSH jail still needs a positive/negative SFTP access test after running.
+- Workflow SFTP paths are now inside the jail (`/in/<build-id>` and `/out/<build-id>`).
