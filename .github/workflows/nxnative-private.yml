@@ -132,7 +132,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/game-files" "$RUNNER_TEMP/private-inputs"
           # Windows OpenSSH SFTP generally exposes drive-letter paths using /D:/...
-          base="/D:/Emulators/Switch/.nxnative-staging/$BUILD_ID"
+          base="/in/$BUILD_ID"
           cat > "$RUNNER_TEMP/get.sftp" <<EOF
           get "$base/game.tar" "$RUNNER_TEMP/private-inputs/game.tar"
           get "$base/prod.keys" "$RUNNER_TEMP/private-inputs/prod.keys"
@@ -191,7 +191,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          base="/D:/Emulators/Switch/.nxnative-outputs/$BUILD_ID"
+          base="/out/$BUILD_ID"
           cat > "$RUNNER_TEMP/put.sftp" <<EOF
           put "$RUNNER_TEMP/NxNative.ipa" "$base/NxNative.ipa"
           EOF
