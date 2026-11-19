@@ -1,0 +1,60 @@
+name: Test restricted EMS SFTP round-trip
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  sftp-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Connect to EMS via Tailscale OIDC
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:github-builder
+
+      - name: Verify SFTP download, upload, and round-trip integrity
+        env:
+          EMS_KEY: ${{ secrets.EMS_SSH_PRIVATE_KEY }}
+          EMS_HOSTKEY: ${{ secrets.EMS_SSH_KNOWN_HOSTS }}
+          EMS_USER: ${{ secrets.EMS_SSH_USER }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "$EMS_KEY" && -n "$EMS_HOSTKEY" && "$EMS_USER" == "nxnative-ci" ]] || {
+            echo "::error::SFTP credentials missing or unexpected account"; exit 1;
+          }
+          umask 077
+          mkdir -p "$RUNNER_TEMP/sftp-smoke" "$HOME/.ssh"
+          printf '%s\n' "$EMS_KEY" > "$HOME/.ssh/id_ed25519"
+          printf '%s\n' "$EMS_HOSTKEY" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/id_ed25519" "$HOME/.ssh/known_hosts"
+          cd "$RUNNER_TEMP/sftp-smoke"
+          cat > get.sftp <<EOF
+          get /in/github-sftp-smoke.txt downloaded.txt
+          EOF
+          sftp -i "$HOME/.ssh/id_ed25519" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -b get.sftp "$EMS_USER@ems.corvus-gamut.ts.net"
+          printf 'cerberus-sftp-smoke-v1\n' > expected.txt
+          cmp expected.txt downloaded.txt
+          echo "PASS: downloaded restricted SFTP input matches expected harmless fixture"
+          cat > put.sftp <<EOF
+          put downloaded.txt /out/github-sftp-smoke-return.txt
+          get /out/github-sftp-smoke-return.txt returned.txt
+          EOF
+          sftp -i "$HOME/.ssh/id_ed25519" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -b put.sftp "$EMS_USER@ems.corvus-gamut.ts.net"
+          cmp downloaded.txt returned.txt
+          echo "PASS: uploaded output and retrieved identical bytes over restricted SFTP"
+          echo "PASS: GitHub-to-EMS SFTP round-trip complete; no game assets or Nintendo keys used"
+
+      - name: Clean ephemeral SSH files
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "$RUNNER_TEMP/sftp-smoke"
+          rm -f "$HOME/.ssh/id_ed25519" "$HOME/.ssh/known_hosts"
