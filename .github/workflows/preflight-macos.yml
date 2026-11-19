@@ -17,6 +17,11 @@ jobs:
           set -euo pipefail
           echo "Processor: $(uname -m)"
           echo "macOS: $(sw_vers -productVersion)"
+          # GitHub xcode-27 image may default to 27.1; explicitly select stable 27.2.
+          test -d /Applications/Xcode_27.2.app/Contents/Developer || {
+            echo "::error::Xcode 27.2 installation not present"; exit 1;
+          }
+          sudo xcode-select --switch /Applications/Xcode_27.2.app/Contents/Developer
           xcodebuild -version
           echo "Disk space:"
           df -h "$RUNNER_TEMP"
