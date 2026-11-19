@@ -124,3 +124,23 @@ jobs:
           set -euo pipefail
           python dm/tools/tests/test_native_tools.py -v
           echo 'PASS: upstream native tool binaries match pinned repository sources'
+
+      - name: Download Apple Metal toolchain and compile iOS shader fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -downloadComponent MetalToolchain
+          xcodebuild -downloadPlatform iOS
+          cat > "$RUNNER_TEMP/cerberus-smoke.metal" <<'METAL'
+          #include <metal_stdlib>
+          using namespace metal;
+          kernel void cerberus_smoke(device float *values [[buffer(0)]],
+                                     uint index [[thread_position_in_grid]]) {
+              values[index] *= 2.0f;
+          }
+          METAL
+          xcrun --sdk iphoneos metal -c "$RUNNER_TEMP/cerberus-smoke.metal" -o "$RUNNER_TEMP/cerberus-smoke.air"
+          xcrun --sdk iphoneos metallib "$RUNNER_TEMP/cerberus-smoke.air" -o "$RUNNER_TEMP/cerberus-smoke.metallib"
+          test -s "$RUNNER_TEMP/cerberus-smoke.metallib"
+          echo "PASS: MetalToolchain downloaded; iOS Metal .metal -> .air -> .metallib compilation succeeded"
+          rm -f "$RUNNER_TEMP/cerberus-smoke.metal" "$RUNNER_TEMP/cerberus-smoke.air" "$RUNNER_TEMP/cerberus-smoke.metallib"
