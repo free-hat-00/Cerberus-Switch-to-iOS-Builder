@@ -1,0 +1,49 @@
+name: Verify private EMS connectivity
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  network-policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Join Tailscale with GitHub OIDC (no SSH or game secrets)
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:github-builder
+
+      - name: Verify allowed and denied TCP connections
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import socket, sys
+          checks = [
+              ("EMS SSH permitted", "100.72.251.28", 22, True),
+              ("EMS SMB blocked", "100.72.251.28", 445, False),
+              ("Cerberus SSH blocked", "cerberus.corvus-gamut.ts.net", 22, False),
+          ]
+          failures = []
+          for label, host, port, should_connect in checks:
+              try:
+                  with socket.create_connection((host, port), timeout=4):
+                      connected = True
+              except (OSError, TimeoutError):
+                  connected = False
+              if connected != should_connect:
+                  print(f"FAIL: {label}")
+                  failures.append(label)
+              else:
+                  print(f"PASS: {label}")
+          if failures:
+              print("Network isolation failed or a required destination is unavailable.")
+              sys.exit(1)
+          print("Network-only smoke test passed. SFTP credentials and game assets were not accessed.")
+          PY
