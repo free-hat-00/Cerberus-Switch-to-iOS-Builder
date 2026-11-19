@@ -1,0 +1,78 @@
+name: Validate private-build archive and output contracts
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fixture-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout controlled build validation code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Configure Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.13'
+      - name: Test valid archives, blocked traversal, extraction limits and IPA path
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import importlib.util, io, pathlib, tarfile, tempfile, zipfile
+          root=pathlib.Path.cwd()
+          spec=importlib.util.spec_from_file_location("validator",root/"scripts/validate-build-inputs.py")
+          mod=importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(mod)
+          with tempfile.TemporaryDirectory() as tmp:
+              tmp=pathlib.Path(tmp)
+              def make(name,member,kind="file",size=20):
+                  archive=tmp/(name+".tar")
+                  with tarfile.open(archive,"w") as tf:
+                      info=tarfile.TarInfo(member)
+                      info.type=tarfile.SYMTYPE if kind=="symlink" else tarfile.REGTYPE
+                      info.linkname="/etc/passwd" if kind=="symlink" else ""
+                      info.size=0 if kind=="symlink" else size
+                      tf.addfile(info, None if kind=="symlink" else io.BytesIO(b"A"*size))
+                  return archive
+              good=make("good","sample/game.xci")
+              packages=mod.validate_and_extract(good,tmp/"valid",free_bytes=10*1024**3+4096)
+              assert len(packages)==1 and packages[0].read_bytes()==b"A"*20
+              print("PASS: valid XCI fixture extracted")
+              for name,member,kind in [
+                  ("traversal","../escape.xci","file"),
+                  ("absolute","/tmp/escape.xci","file"),
+                  ("symlink","sample/game.xci","symlink"),
+                  ("missing","sample/notes.txt","file"),
+                  ("windows","C:\\escape.xci","file"),
+              ]:
+                  a=make(name,member,kind)
+                  try:
+                      mod.validate_and_extract(a,tmp/("reject-"+name),free_bytes=10*1024**3+4096)
+                  except ValueError:
+                      print("PASS: rejected "+name)
+                  else:
+                      raise AssertionError("Accepted unsafe or unsupported archive "+name)
+              try:
+                  mod.validate_and_extract(good,tmp/"lowdisk",free_bytes=1024)
+              except ValueError:
+                  print("PASS: low disk-space budget rejected before extraction")
+              else:
+                  raise AssertionError("Low disk-space budget incorrectly accepted")
+              # Simulate the expected SFTP output layout and an unsigned IPA zip.
+              build_id="a"*32
+              output=tmp/"out"/build_id
+              output.mkdir(parents=True)
+              ipa=output/"NxNative.ipa"
+              with zipfile.ZipFile(ipa,"w") as z:
+                  z.writestr("Payload/Fixture.app/Info.plist",b"harmless-ci-fixture")
+              assert ipa.is_file() and zipfile.is_zipfile(ipa)
+              assert len(ipa.relative_to(tmp).parts)==3
+              print("PASS: /out/<build_id>/NxNative.ipa contract fixture")
+              print("PASS: all game-free archive, disk, and output-path fixture tests")
+          PY
