@@ -32,7 +32,7 @@ try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
 $passwordText = -join ($bytes | ForEach-Object { $alphabet[$_ % $alphabet.Length] })
 $password = ConvertTo-SecureString $passwordText -AsPlainText -Force
 $passwordText = $null
-New-LocalUser -Name $user -Password $password -FullName 'NxNative restricted SFTP account' -Description 'SFTP-only GitHub builder - no administrator rights' -PasswordNeverExpires | Out-Null
+New-LocalUser -Name $user -Password $password -FullName 'NxNative restricted SFTP account' -Description 'Restricted NxNative SFTP builder' -PasswordNeverExpires | Out-Null
 # Local accounts are non-admin unless explicitly added to Administrators.
 if (Get-LocalGroupMember -Group Administrators | Where-Object { $_.Name -match '(?i)\\nxnative-ci$' }) {
   throw 'Refusing to continue: builder account unexpectedly administrator.'
