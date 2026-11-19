@@ -141,16 +141,21 @@ jobs:
           test -s "$RUNNER_TEMP/private-inputs/game.tar"
           test -s "$RUNNER_TEMP/private-inputs/prod.keys"
           chmod 600 "$RUNNER_TEMP/private-inputs/prod.keys"
-          tar -xf "$RUNNER_TEMP/private-inputs/game.tar" -C "$RUNNER_TEMP/game-files"
-          # Prevent path traversal through archives and require at least one recognized package.
+          # Inspect archive paths before extraction. No symlinks, devices, or traversal.
           python3 - <<'PY'
-          import os
-          from pathlib import Path
+          import os, tarfile
+          from pathlib import Path, PurePosixPath
           root=Path(os.environ["RUNNER_TEMP"])/"game-files"
+          archive=Path(os.environ["RUNNER_TEMP"])/"private-inputs"/"game.tar"
+          with tarfile.open(archive) as t:
+              for m in t.getmembers():
+                  p=PurePosixPath(m.name)
+                  if p.is_absolute() or ".." in p.parts or not (m.isfile() or m.isdir()):
+                      raise SystemExit("Unsafe archive entry found")
+              t.extractall(root, filter="data")
           packages=[p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in {".nsp",".xci",".nsz",".xcz"}]
-          if not packages: raise SystemExit("No supported packages in staged archive")
-          if any(p.is_symlink() for p in root.rglob("*")): raise SystemExit("Archive may not contain symlinks")
-          print("Validated staged package count:",len(packages))
+          if not packages: raise SystemExit("No supported game packages in stage")
+          print("Validated package count:",len(packages))
           PY
 
       - name: Build unsigned IPA
@@ -160,6 +165,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          [[ "$ROMFS_MODE" == bundle ]] || { echo "::error::Separate RomFS output transfer is not yet implemented"; exit 1; }
           args=("$RUNNER_TEMP/game-files" -k "$RUNNER_TEMP/private-inputs/prod.keys" -o "$RUNNER_TEMP/NxNative.ipa" --romfs "$ROMFS_MODE")
           if [[ -n "$PROFILE_ID" ]]; then export DM_GAME="${PROFILE_ID^^}"; fi
           python scripts/build_ipa_from_nsp.py "${args[@]}"
