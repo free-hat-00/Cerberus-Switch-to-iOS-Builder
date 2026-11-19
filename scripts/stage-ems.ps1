@@ -11,10 +11,11 @@ $ErrorActionPreference = 'Stop'
 $root = 'D:\Emulators\Switch'
 $games = Join-Path $root 'Games - ROMs'
 $key = Join-Path $root 'Ryujinx\publish\Keys-22.1.0\prod.keys'
-$stageRoot = 'C:\\NxNativeSFTP\\in'
-$outputRoot = 'C:\\NxNativeSFTP\\out'
+$stageRoot = 'C:\NxNativeSFTP\in'
+$outputRoot = 'C:\NxNativeSFTP\out'
 
-if (!(Test-Path -LiteralPath $stageRoot -PathType Container) -or !(Test-Path -LiteralPath $outputRoot -PathType Container)) { throw 'SFTP-only workspace not configured. Run setup-ems-sftp.ps1 as administrator.' }\nif (!(Test-Path -LiteralPath $key -PathType Leaf)) { throw 'prod.keys was not found.' }
+if (!(Test-Path -LiteralPath $stageRoot -PathType Container) -or !(Test-Path -LiteralPath $outputRoot -PathType Container)) { throw 'SFTP-only workspace not configured. Run setup-ems-sftp.ps1 as administrator.' }
+if (!(Test-Path -LiteralPath $key -PathType Leaf)) { throw 'prod.keys was not found.' }
 if (!(Test-Path -LiteralPath $games -PathType Container)) { throw 'Game root not found.' }
 # Exact immediate child folder match prevents traversal.
 $matches = @(Get-ChildItem -LiteralPath $games -Directory | Where-Object { $_.Name -ceq $GameFolder })
