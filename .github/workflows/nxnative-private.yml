@@ -90,10 +90,16 @@ jobs:
 
       - name: Checkout legacy BC fallback fork
         if: inputs.device == 'bc-fallback'
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: mianmuhammadse/nxnative
           ref: d158df611bf2f3fa315c4f16585575cdfdb2a1d3
+          persist-credentials: false
+
+      - name: Checkout audited builder validation code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          path: builder-control
           persist-credentials: false
 
       - name: Configure Python and .NET
@@ -151,36 +157,9 @@ jobs:
           sftp -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -b "$RUNNER_TEMP/get.sftp" "$EMS_USER@ems.corvus-gamut.ts.net"
           test -s "$RUNNER_TEMP/private-inputs/game.tar"
           test -s "$RUNNER_TEMP/private-inputs/prod.keys"
-          # A normal 14 GB Apple Silicon runner is too small for many titles.
-          # Fail before unpacking to avoid uncontrolled disk exhaustion.
-          python3 - <<'PY'
-          import os, shutil
-          from pathlib import Path
-          path=Path(os.environ["RUNNER_TEMP"])
-          size=(path/"private-inputs"/"game.tar").stat().st_size
-          free=shutil.disk_usage(path).free
-          required=2*size+10*1024**3
-          if free < required:
-              raise SystemExit("Insufficient runner disk: estimated need ~2x input size plus 10 GiB. Use smaller source or a larger compatible macOS runner.")
-          print("Disk-space preflight passed")
-          PY
           chmod 600 "$RUNNER_TEMP/private-inputs/prod.keys"
-          # Inspect archive paths before extraction. No symlinks, devices, or traversal.
-          python3 - <<'PY'
-          import os, tarfile
-          from pathlib import Path, PurePosixPath
-          root=Path(os.environ["RUNNER_TEMP"])/"game-files"
-          archive=Path(os.environ["RUNNER_TEMP"])/"private-inputs"/"game.tar"
-          with tarfile.open(archive) as t:
-              for m in t.getmembers():
-                  p=PurePosixPath(m.name)
-                  if p.is_absolute() or ".." in p.parts or not (m.isfile() or m.isdir()):
-                      raise SystemExit("Unsafe archive entry found")
-              t.extractall(root, filter="data")
-          packages=[p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in {".nsp",".xci",".nsz",".xcz"}]
-          if not packages: raise SystemExit("No supported game packages in stage")
-          print("Validated package count:",len(packages))
-          PY
+          python3 "$GITHUB_WORKSPACE/builder-control/scripts/validate-build-inputs.py" \
+            "$RUNNER_TEMP/private-inputs/game.tar" "$RUNNER_TEMP/game-files"
 
       - name: Build unsigned IPA
         env:
