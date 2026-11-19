@@ -12,6 +12,27 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Diagnose GitHub OIDC identity (safe claim fields only)
+        env:
+          TS_AUDIENCE: ${{ secrets.TS_AUDIENCE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64,json,os,urllib.parse,urllib.request
+          url=os.environ["ACTIONS_ID_TOKEN_REQUEST_URL"]
+          sep="&" if "?" in url else "?"
+          url+=sep+"audience="+urllib.parse.quote(os.environ["TS_AUDIENCE"],safe="")
+          req=urllib.request.Request(url,headers={"Authorization":"Bearer "+os.environ["ACTIONS_ID_TOKEN_REQUEST_TOKEN"]})
+          with urllib.request.urlopen(req,timeout=20) as response:
+              payload=json.load(response)
+          token=payload["value"]
+          middle=token.split(".")[1]
+          claims=json.loads(base64.urlsafe_b64decode(middle+"="*(-len(middle)%4)))
+          for key in ("iss","sub","repository","ref","event_name"):
+              print(key+": "+str(claims.get(key)))
+          print("audience matches configured value:", claims.get("aud")==os.environ["TS_AUDIENCE"])
+          PY
       - name: Join Tailscale with GitHub OIDC (no SSH or game secrets)
         uses: tailscale/github-action@v4
         with:
