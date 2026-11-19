@@ -224,8 +224,8 @@ jobs:
             tail -n 250 "$diag/conversion.log" > "$diag/build-tail.log"
           fi
           # Only short textual survey/profile reports, not extracted game data.
-          survey=$(find "$RUNNER_TEMP/game-files" -type f -path '*/0100BDE00862A000_survey/survey.md' -print -quit 2>/dev/null || true)
-          profile=$(find "$RUNNER_TEMP/game-files" -type f -path '*/profile/0100BDE00862A000/game.tsv' -print -quit 2>/dev/null || true)
+          survey=$(find "$RUNNER_TEMP/game-files" -type f -path '*/????????????????_survey/survey.md' -print -quit 2>/dev/null || true)
+          profile=$(find "$RUNNER_TEMP/game-files" -type f -path '*/profile/????????????????/game.tsv' -print -quit 2>/dev/null || true)
           [[ -z "$survey" ]] || cp "$survey" "$diag/survey.md"
           [[ -z "$profile" ]] || cp "$profile" "$diag/game.tsv"
           batch="$RUNNER_TEMP/save-diagnostics.sftp"
