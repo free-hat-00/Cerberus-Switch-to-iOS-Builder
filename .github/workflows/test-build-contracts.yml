@@ -41,7 +41,7 @@ jobs:
                       tf.addfile(info, None if kind=="symlink" else io.BytesIO(b"A"*size))
                   return archive
               good=make("good","sample/game.xci")
-              packages=mod.validate_and_extract(good,tmp/"valid",free_bytes=10*1024**3+4096)
+              packages=mod.validate_and_extract(good,tmp/"valid",free_bytes=10*1024**3+1048576)
               assert len(packages)==1 and packages[0].read_bytes()==b"A"*20
               print("PASS: valid XCI fixture extracted")
               for name,member,kind in [
@@ -53,7 +53,7 @@ jobs:
               ]:
                   a=make(name,member,kind)
                   try:
-                      mod.validate_and_extract(a,tmp/("reject-"+name),free_bytes=10*1024**3+4096)
+                      mod.validate_and_extract(a,tmp/("reject-"+name),free_bytes=10*1024**3+1048576)
                   except ValueError:
                       print("PASS: rejected "+name)
                   else:
