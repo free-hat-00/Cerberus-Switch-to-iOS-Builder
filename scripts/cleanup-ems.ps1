@@ -15,5 +15,5 @@ if (!(Test-Path -LiteralPath $target -PathType Container)) {
 }
 if ($PSCmdlet.ShouldProcess($target,'Delete staging files and copied keys')) {
   Remove-Item -LiteralPath $target -Recurse -Force
-  Write-Output 'Staging directory removed. IPA output, if any, remains in .nxnative-outputs.'
+  Write-Output 'Staging directory removed. IPA output, if any, remains in C:\\NxNativeSFTP\\out.'
 }
