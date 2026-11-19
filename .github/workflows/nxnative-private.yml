@@ -1,0 +1,190 @@
+name: NxNative private EMS builder
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_id:
+        description: 'Opaque EMS staging ID (from scripts/stage-ems.ps1)'
+        required: true
+        type: string
+      device:
+        description: 'iOS device texture path'
+        required: true
+        type: choice
+        default: 'standard'
+        options:
+          - standard
+          - bc-fallback
+      profile_id:
+        description: 'Optional 16-character hexadecimal shader profile override'
+        required: false
+        type: string
+      romfs:
+        description: 'RomFS packaging'
+        required: true
+        type: choice
+        default: bundle
+        options:
+          - bundle
+          - separate
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nxnative-private-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # Public repo: disabled until SSH and Tailscale permissions are configured.
+    if: vars.ENABLE_PRIVATE_BUILDS == 'true'
+    runs-on: xcode-27
+    timeout-minutes: 360
+    steps:
+      - name: Verify input and required configuration
+        env:
+          BUILD_ID: ${{ inputs.build_id }}
+          PROFILE_ID: ${{ inputs.profile_id }}
+          TS_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_SECRET: ${{ secrets.TS_OAUTH_CLIENT_SECRET }}
+          EMS_KEY: ${{ secrets.EMS_SSH_PRIVATE_KEY }}
+          EMS_HOSTKEY: ${{ secrets.EMS_SSH_KNOWN_HOSTS }}
+          EMS_USER: ${{ secrets.EMS_SSH_USER }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$BUILD_ID" =~ ^[A-Za-z0-9_-]{12,40}$ ]] || { echo "::error::Invalid opaque build ID"; exit 1; }
+          [[ -z "$PROFILE_ID" || "$PROFILE_ID" =~ ^[a-fA-F0-9]{16}$ ]] || { echo "::error::Invalid profile ID"; exit 1; }
+          for var in TS_ID TS_SECRET EMS_KEY EMS_HOSTKEY EMS_USER; do
+            [[ -n "${!var}" ]] || { echo "::error::Required secret is not configured"; exit 1; }
+          done
+          [[ "$(uname -m)" == arm64 ]] || { echo "::error::Apple Silicon runner required"; exit 1; }
+          xcodebuild -version
+          python3 - <<'PY'
+          import re, subprocess
+          x = subprocess.check_output(["xcodebuild", "-version"], text=True)
+          m = re.search(r'Xcode (\d+)\.(\d+)', x)
+          if not m or tuple(map(int, m.groups())) < (27, 2):
+              raise SystemExit("Xcode 27.2 or newer is required")
+          PY
+
+      - name: Checkout standard nxnative
+        if: inputs.device == 'standard'
+        uses: actions/checkout@v4
+        with:
+          repository: seedds/nxnative
+          ref: main
+          persist-credentials: false
+
+      - name: Checkout legacy BC fallback fork
+        if: inputs.device == 'bc-fallback'
+        uses: actions/checkout@v4
+        with:
+          repository: mianmuhammadse/nxnative
+          ref: d158df611bf2f3fa315c4f16585575cdfdb2a1d3
+          persist-credentials: false
+
+      - name: Configure Python and .NET
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install nxnative build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install xcodegen zstd glslang unar
+          python -m pip install lz4 'capstone>=5,<6' fonttools nsz zbic backports.zstd
+          xcodebuild -downloadComponent MetalToolchain
+          xcodebuild -downloadPlatform iOS
+
+      - name: Join private Tailscale network
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_CLIENT_SECRET }}
+          tags: tag:github-builder
+
+      - name: Configure pinned EMS SSH host and key
+        env:
+          EMS_KEY: ${{ secrets.EMS_SSH_PRIVATE_KEY }}
+          EMS_HOSTKEY: ${{ secrets.EMS_SSH_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$EMS_KEY" > "$HOME/.ssh/id_ed25519"
+          printf '%s\n' "$EMS_HOSTKEY" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/id_ed25519" "$HOME/.ssh/known_hosts"
+
+      - name: Retrieve staged inputs privately from EMS
+        env:
+          BUILD_ID: ${{ inputs.build_id }}
+          EMS_USER: ${{ secrets.EMS_SSH_USER }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/game-files" "$RUNNER_TEMP/private-inputs"
+          # Windows OpenSSH SFTP generally exposes drive-letter paths using /D:/...
+          base="/D:/Emulators/Switch/.nxnative-staging/$BUILD_ID"
+          cat > "$RUNNER_TEMP/get.sftp" <<EOF
+          get "$base/game.tar" "$RUNNER_TEMP/private-inputs/game.tar"
+          get "$base/prod.keys" "$RUNNER_TEMP/private-inputs/prod.keys"
+          EOF
+          sftp -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -b "$RUNNER_TEMP/get.sftp" "$EMS_USER@ems.corvus-gamut.ts.net"
+          test -s "$RUNNER_TEMP/private-inputs/game.tar"
+          test -s "$RUNNER_TEMP/private-inputs/prod.keys"
+          chmod 600 "$RUNNER_TEMP/private-inputs/prod.keys"
+          tar -xf "$RUNNER_TEMP/private-inputs/game.tar" -C "$RUNNER_TEMP/game-files"
+          # Prevent path traversal through archives and require at least one recognized package.
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          root=Path(os.environ["RUNNER_TEMP"])/"game-files"
+          packages=[p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in {".nsp",".xci",".nsz",".xcz"}]
+          if not packages: raise SystemExit("No supported packages in staged archive")
+          if any(p.is_symlink() for p in root.rglob("*")): raise SystemExit("Archive may not contain symlinks")
+          print("Validated staged package count:",len(packages))
+          PY
+
+      - name: Build unsigned IPA
+        env:
+          PROFILE_ID: ${{ inputs.profile_id }}
+          ROMFS_MODE: ${{ inputs.romfs }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=("$RUNNER_TEMP/game-files" -k "$RUNNER_TEMP/private-inputs/prod.keys" -o "$RUNNER_TEMP/NxNative.ipa" --romfs "$ROMFS_MODE")
+          if [[ -n "$PROFILE_ID" ]]; then export DM_GAME="${PROFILE_ID^^}"; fi
+          python scripts/build_ipa_from_nsp.py "${args[@]}"
+          test -s "$RUNNER_TEMP/NxNative.ipa"
+
+      - name: Return IPA privately to EMS
+        env:
+          BUILD_ID: ${{ inputs.build_id }}
+          EMS_USER: ${{ secrets.EMS_SSH_USER }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="/D:/Emulators/Switch/.nxnative-outputs/$BUILD_ID"
+          cat > "$RUNNER_TEMP/put.sftp" <<EOF
+          put "$RUNNER_TEMP/NxNative.ipa" "$base/NxNative.ipa"
+          EOF
+          sftp -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -b "$RUNNER_TEMP/put.sftp" "$EMS_USER@ems.corvus-gamut.ts.net"
+          echo "Private build output transferred to EMS."
+          if [[ "${{ inputs.romfs }}" == separate ]]; then
+            echo "::warning::Separate RomFS transfer is not implemented. Choose bundle for initial builds."
+          fi
+
+      - name: Remove temporary private inputs
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "$RUNNER_TEMP/game-files" "$RUNNER_TEMP/private-inputs" "$RUNNER_TEMP/NxNative.ipa"
+          rm -f "$HOME/.ssh/id_ed25519" "$HOME/.ssh/known_hosts" "$RUNNER_TEMP/get.sftp" "$RUNNER_TEMP/put.sftp"
