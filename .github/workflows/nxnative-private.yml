@@ -26,7 +26,6 @@ on:
         default: bundle
         options:
           - bundle
-          - separate
 
 permissions:
   contents: read
@@ -61,6 +60,7 @@ jobs:
           done
           [[ "$(uname -m)" == arm64 ]] || { echo "::error::Apple Silicon runner required"; exit 1; }
           xcodebuild -version
+          [[ "$(sw_vers -productVersion | cut -d. -f1)" -ge 26 ]] || { echo "::error::macOS 26+ required"; exit 1; }
           python3 - <<'PY'
           import re, subprocess
           x = subprocess.check_output(["xcodebuild", "-version"], text=True)
@@ -140,6 +140,19 @@ jobs:
           sftp -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -b "$RUNNER_TEMP/get.sftp" "$EMS_USER@ems.corvus-gamut.ts.net"
           test -s "$RUNNER_TEMP/private-inputs/game.tar"
           test -s "$RUNNER_TEMP/private-inputs/prod.keys"
+          # A normal 14 GB Apple Silicon runner is too small for many titles.
+          # Fail before unpacking to avoid uncontrolled disk exhaustion.
+          python3 - <<'PY'
+          import os, shutil
+          from pathlib import Path
+          path=Path(os.environ["RUNNER_TEMP"])
+          size=(path/"private-inputs"/"game.tar").stat().st_size
+          free=shutil.disk_usage(path).free
+          required=2*size+10*1024**3
+          if free < required:
+              raise SystemExit("Insufficient runner disk: estimated need ~2x input size plus 10 GiB. Use smaller source or a larger compatible macOS runner.")
+          print("Disk-space preflight passed")
+          PY
           chmod 600 "$RUNNER_TEMP/private-inputs/prod.keys"
           # Inspect archive paths before extraction. No symlinks, devices, or traversal.
           python3 - <<'PY'
@@ -184,13 +197,11 @@ jobs:
           EOF
           sftp -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -b "$RUNNER_TEMP/put.sftp" "$EMS_USER@ems.corvus-gamut.ts.net"
           echo "Private build output transferred to EMS."
-          if [[ "${{ inputs.romfs }}" == separate ]]; then
-            echo "::warning::Separate RomFS transfer is not implemented. Choose bundle for initial builds."
-          fi
 
       - name: Remove temporary private inputs
         if: always()
         shell: bash
         run: |
           rm -rf "$RUNNER_TEMP/game-files" "$RUNNER_TEMP/private-inputs" "$RUNNER_TEMP/NxNative.ipa"
+          rm -f "$RUNNER_TEMP/private-inputs/game.tar"
           rm -f "$HOME/.ssh/id_ed25519" "$HOME/.ssh/known_hosts" "$RUNNER_TEMP/get.sftp" "$RUNNER_TEMP/put.sftp"
