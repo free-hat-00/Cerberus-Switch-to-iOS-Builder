@@ -1,0 +1,81 @@
+name: NxNative macOS toolchain preflight (no game assets)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  toolchain:
+    runs-on: xcode-27
+    timeout-minutes: 25
+    steps:
+      - name: Inspect native macOS host
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Processor: $(uname -m)"
+          echo "macOS: $(sw_vers -productVersion)"
+          xcodebuild -version
+          echo "Disk space:"
+          df -h "$RUNNER_TEMP"
+          python3 - <<'PY'
+          import os,platform,re,shutil,subprocess
+          if platform.machine() != 'arm64':
+              raise SystemExit('Apple Silicon arm64 runner required')
+          ver=tuple(int(n) for n in platform.mac_ver()[0].split('.')[:2])
+          if ver < (26,6):
+              raise SystemExit('nxnative requires macOS 26.6+')
+          text=subprocess.check_output(['xcodebuild','-version'],text=True)
+          match=re.search(r'Xcode (\d+)\.(\d+)',text)
+          if not match or tuple(map(int,match.groups()))<(27,2):
+              raise SystemExit('nxnative requires Xcode 27.2+')
+          free=shutil.disk_usage(os.environ['RUNNER_TEMP']).free
+          print(f'Free disk: {free/1024**3:.2f} GiB')
+          if free<6*1024**3:
+              raise SystemExit('Not enough free disk even for toolchain preflight')
+          PY
+
+      - name: Check out audited nxnative source revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: seedds/nxnative
+          ref: 92a61243e42ed12fa718336691617cbea8058b21
+          persist-credentials: false
+
+      - name: Configure Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.13'
+
+      - name: Inspect nxnative source and available toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import ast,platform,pathlib,sys
+          script=pathlib.Path('scripts/build_ipa_from_nsp.py')
+          if not script.is_file():
+              raise SystemExit('nxnative entrypoint missing')
+          tree=ast.parse(script.read_text(encoding='utf-8'),filename=str(script))
+          text=script.read_text(encoding='utf-8')
+          for option in ('--romfs','--prepare-xcode','--survey-only'):
+              if option not in text:
+                  raise SystemExit('Expected build option not found: '+option)
+          print('PASS: pinned nxnative entrypoint parses and expected CLI options exist')
+          print('Python:',sys.version.split()[0],platform.machine())
+          if sys.version_info < (3,12):
+              raise SystemExit('Python 3.12+ required')
+          PY
+          echo 'iOS SDK availability:'
+          xcrun --sdk iphoneos --show-sdk-version
+          echo 'Available dependencies:'
+          for tool in brew git swift dotnet xcodegen zstd glslangValidator unar; do
+            if command -v "$tool" >/dev/null 2>&1; then
+              echo "AVAILABLE: $tool ($(command -v "$tool"))"
+            else
+              echo "MISSING: $tool (build setup must install or configure it)"
+            fi
+          done
+          echo 'PASS: game-free macOS toolchain preflight completed'
