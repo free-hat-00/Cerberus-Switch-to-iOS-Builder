@@ -1,0 +1,38 @@
+name: Cerberus builder preflight
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/preflight.yml'
+      - '.gitignore'
+      - 'docs/**'
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check repository security boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import subprocess, sys
+          tracked = subprocess.check_output(["git", "ls-files", "-z"]).split(b"\0")
+          forbidden = (".nsp", ".xci", ".nsz", ".xcz", ".nca", ".nup", ".tik", ".keys", ".ipa", ".p12", ".mobileprovision")
+          bad = [p.decode(errors="replace") for p in tracked if p and p.decode(errors="replace").lower().endswith(forbidden)]
+          if bad:
+              print("FAIL: sensitive or binary inputs tracked:", len(bad))
+              sys.exit(1)
+          print("PASS: no known game/key/IPA extensions tracked")
+          PY
+      - name: Explain build gate
+        run: |
+          echo "Preflight only. EMS transfer and macOS/Xcode compatibility must be validated before enabling a build."
