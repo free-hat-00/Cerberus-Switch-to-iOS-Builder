@@ -228,10 +228,18 @@ jobs:
           profile=$(find "$RUNNER_TEMP/game-files" -type f -path '*/profile/????????????????/game.tsv' -print -quit 2>/dev/null || true)
           [[ -z "$survey" ]] || cp "$survey" "$diag/survey.md"
           [[ -z "$profile" ]] || cp "$profile" "$diag/game.tsv"
+          # Shader-table mismatch: keep the *generated metadata tables* privately
+          # for identity/order comparison, never shader bytecode or game assets.
+          tbl=$(find "$RUNNER_TEMP/game-files" -type d -path '*/shader/pkg.partial/tables' -print -quit 2>/dev/null || true)
+          if [[ -n "$tbl" ]]; then
+            for fname in shader_map.tsv shader_facts.tsv shader_pairs.tsv; do
+              [[ ! -s "$tbl/$fname" ]] || cp "$tbl/$fname" "$diag/$fname"
+            done
+          fi
           batch="$RUNNER_TEMP/save-diagnostics.sftp"
           printf '%s\n' "-mkdir /out/$BUILD_ID/diagnostics" > "$batch"
           count=0
-          for name in resources.log build-tail.log survey.md game.tsv; do
+          for name in resources.log build-tail.log survey.md game.tsv shader_map.tsv shader_facts.tsv shader_pairs.tsv; do
             if [[ -s "$diag/$name" ]]; then
               printf 'put "%s" "/out/%s/diagnostics/%s"\n' "$diag/$name" "$BUILD_ID" "$name" >> "$batch"
               count=$((count + 1))
