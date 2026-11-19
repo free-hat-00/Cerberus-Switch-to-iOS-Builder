@@ -49,13 +49,13 @@ $admins = 'BUILTIN\Administrators:(OI)(CI)F'
 $system = 'NT AUTHORITY\SYSTEM:(OI)(CI)F'
 $reader = "nxnative-ci:(OI)(CI)RX"
 $operatorMod = "${operator}:(OI)(CI)M"
-Set-AclExact $root @($admins,$system,$reader)
+Set-AclExact $root @($admins,$system,$reader,"${operator}:(OI)(CI)RX")
 Set-AclExact "$root\in" @($admins,$system,$reader,$operatorMod)
 Set-AclExact "$root\out" @($admins,$system,"nxnative-ci:(OI)(CI)M",$operatorMod)
 Set-AclExact $secure @($admins,$system)
 
 $private = "$secure\client_ed25519"
-& ssh-keygen.exe -q -t ed25519 -N '' -f $private
+& cmd.exe /d /s /c ('"C:\\Windows\\System32\\OpenSSH\\ssh-keygen.exe" -q -t ed25519 -N "" -f "' + $private + '"')
 if ($LASTEXITCODE -ne 0 -or !(Test-Path "$private.pub")) { throw 'SSH key generation failed.' }
 Copy-Item -LiteralPath "$private.pub" -Destination "$secure\authorized_keys" -Force
 $grantAdmin = @('BUILTIN\Administrators:F','NT AUTHORITY\SYSTEM:F')
