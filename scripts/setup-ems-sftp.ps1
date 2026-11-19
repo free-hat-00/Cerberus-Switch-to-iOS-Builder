@@ -8,8 +8,8 @@ $user = 'nxnative-ci'
 $root = 'C:\NxNativeSFTP'
 $config = 'C:\ProgramData\ssh\sshd_config'
 $secure = 'C:\ProgramData\NxNativeBuilder'
-$operator = [Security.Principal.WindowsIdentity]::GetCurrent().Name
-if ($operator -notmatch '^[^\\]+\\[^\\]+$') { throw 'Cannot identify local operator.' }
+$operator = "$env:COMPUTERNAME\\cerberus"
+if (!(Get-LocalUser -Name 'cerberus' -ErrorAction SilentlyContinue)) { throw 'Existing EMS operator account cerberus not found.' }
 if (Get-LocalUser -Name $user -ErrorAction SilentlyContinue) {
   throw 'nxnative-ci already exists. Refusing to overwrite or rotate an existing identity.'
 }
