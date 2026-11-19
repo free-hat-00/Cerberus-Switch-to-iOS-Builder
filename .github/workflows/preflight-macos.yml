@@ -107,3 +107,20 @@ jobs:
           print('PASS: required Python modules import-discoverable')
           PY
           echo 'PASS: build dependency installation works on xcode-27 runner'
+
+      - name: Compile and execute native macOS smoke binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '#include <stdio.h>\nint main(void){puts("PASS: native arm64 C compiler and runtime");return 0;}\n' > "$RUNNER_TEMP/nxnative-preflight.c"
+          xcrun clang -arch arm64 "$RUNNER_TEMP/nxnative-preflight.c" -o "$RUNNER_TEMP/nxnative-preflight"
+          file "$RUNNER_TEMP/nxnative-preflight"
+          "$RUNNER_TEMP/nxnative-preflight"
+          rm -f "$RUNNER_TEMP/nxnative-preflight.c" "$RUNNER_TEMP/nxnative-preflight"
+
+      - name: Run nxnative's game-free native executable tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python dm/tools/tests/test_native_tools.py -v
+          echo 'PASS: upstream native tool binaries match pinned repository sources'
