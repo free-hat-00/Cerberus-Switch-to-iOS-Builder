@@ -85,7 +85,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: seedds/nxnative
-          ref: 92a61243e42ed12fa718336691617cbea8058b21
+          ref: c9b122713037ba23de9eb46ee67531f03167bd23
           persist-credentials: false
 
       - name: Checkout legacy BC fallback fork
